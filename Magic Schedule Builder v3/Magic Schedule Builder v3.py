@@ -499,7 +499,7 @@ class ScheduleApp(tk.Tk):
         canvas.create_window((0,0), window=inner, anchor="nw")
         inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
 
-        sections: List[Tuple[tk.StringVar, Dict[str, tk.StringVar]]] = []
+        sections: List[Tuple[tk.StringVar, Dict[str, tk.StringVar], Optional[tk.BooleanVar]]] = []
 
         if self.schedule_dates:
             date_iterable = self.schedule_dates
@@ -508,28 +508,59 @@ class ScheduleApp(tk.Tk):
             date_iterable = DAY_NAMES
             label_iterable = DAY_NAMES
 
+        first_inputs: Dict[str, tk.StringVar] | None = None
+
+        def clone_selected(*_: object) -> None:
+            if not sections or not first_inputs:
+                return
+            base = sections[0][1]
+            for _, inputs, c_var in sections[1:]:
+                if c_var and c_var.get():
+                    for key, var in base.items():
+                        inputs[key].set(var.get())
+
         def add_section(emp_index: int = 0) -> None:
             frame = tk.LabelFrame(inner, text=f"Employee {len(sections)+1}")
             frame.pack(padx=5, pady=5, fill="x", expand=True)
             emp_var = tk.StringVar(value=names[emp_index])
-            ttk.Combobox(frame, values=names, textvariable=emp_var, state="readonly").grid(row=0, column=0, columnspan=2, pady=(0,5))
+            name_combo = ttk.Combobox(frame, values=names, textvariable=emp_var, state="readonly")
+            if sections:
+                name_combo.grid(row=0, column=0, pady=(0,5))
+            else:
+                name_combo.grid(row=0, column=0, columnspan=2, pady=(0,5))
+            clone_var: Optional[tk.BooleanVar] = None
+            if sections:  # not first employee
+                clone_var = tk.BooleanVar(value=False)
+                tk.Checkbutton(frame, text="Clone from first", variable=clone_var).grid(row=0, column=1, padx=5)
             inputs: Dict[str, tk.StringVar] = {}
             for idx, label in enumerate(label_iterable):
                 tk.Label(frame, text=f"{label}:").grid(row=1+idx, column=0, sticky="e", padx=5, pady=1)
                 var = tk.StringVar()
                 combo = ttk.Combobox(frame, textvariable=var, values=SHIFT_OPTIONS)
-                combo.grid(row=1+idx, column=1, padx=5, pady=1)
+                combo.grid(row=1+idx, column=1 if clone_var is None else 2, padx=5, pady=1)
                 combo['state'] = 'normal'
                 key = date_iterable[idx].isoformat() if self.schedule_dates else date_iterable[idx]
                 inputs[key] = var
-            sections.append((emp_var, inputs))
+            sections.append((emp_var, inputs, clone_var))
+
+            nonlocal first_inputs
+            if len(sections) == 1:
+                first_inputs = inputs
+                for v in inputs.values():
+                    v.trace_add("write", clone_selected)
+            else:
+                if clone_var and clone_var.get() and first_inputs:
+                    for key, fv in first_inputs.items():
+                        inputs[key].set(fv.get())
+                if clone_var:
+                    clone_var.trace_add("write", clone_selected)
 
         add_section()
 
         tk.Button(dialog, text="+", command=add_section).pack(pady=5)
 
         def save() -> None:
-            for emp_var, inputs in sections:
+            for emp_var, inputs, _ in sections:
                 name = emp_var.get()
                 if not name:
                     continue
