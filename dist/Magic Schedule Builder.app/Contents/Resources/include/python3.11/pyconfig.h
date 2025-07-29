@@ -198,7 +198,7 @@
 #define HAVE_CURSES_IMMEDOK 1
 
 /* Define if you have the 'is_pad' function. */
-/* #undef HAVE_CURSES_IS_PAD */
+#define HAVE_CURSES_IS_PAD 1
 
 /* Define if you have the 'is_term_resized' function. */
 #define HAVE_CURSES_IS_TERM_RESIZED 1
@@ -771,7 +771,7 @@
 #define HAVE_LUTIMES 1
 
 /* Define to 1 if you have the <lzma.h> header file. */
-#define HAVE_LZMA_H 1
+/* #undef HAVE_LZMA_H */
 
 /* Define to 1 if you have the `madvise' function. */
 #define HAVE_MADVISE 1
@@ -798,13 +798,13 @@
 #define HAVE_MKFIFO 1
 
 /* Define to 1 if you have the `mkfifoat' function. */
-/* #undef HAVE_MKFIFOAT */
+#define HAVE_MKFIFOAT 1
 
 /* Define to 1 if you have the `mknod' function. */
 #define HAVE_MKNOD 1
 
 /* Define to 1 if you have the `mknodat' function. */
-/* #undef HAVE_MKNODAT */
+#define HAVE_MKNODAT 1
 
 /* Define to 1 if you have the `mktime' function. */
 #define HAVE_MKTIME 1
@@ -1581,7 +1581,7 @@
 /* #undef PY_SSL_DEFAULT_CIPHER_STRING */
 
 /* PEP 11 Support tier (1, 2, 3 or 0 for unsupported) */
-#define PY_SUPPORT_TIER 1
+#define PY_SUPPORT_TIER 2
 
 /* Define if you want to build an interpreter with many run-time checks. */
 /* #undef Py_DEBUG */
@@ -1627,7 +1627,7 @@
 #define SIZEOF_LONG 8
 
 /* The size of `long double', as computed by sizeof. */
-#define SIZEOF_LONG_DOUBLE 16
+#define SIZEOF_LONG_DOUBLE 8
 
 /* The size of `long long', as computed by sizeof. */
 #define SIZEOF_LONG_LONG 8
@@ -1685,7 +1685,7 @@
 /* #undef TM_IN_SYS_TIME */
 
 /* Define if you want to use computed gotos in ceval.c. */
-#define USE_COMPUTED_GOTOS 1
+/* #undef USE_COMPUTED_GOTOS */
 
 /* Enable extensions on AIX 3, Interix.  */
 #ifndef _ALL_SOURCE
