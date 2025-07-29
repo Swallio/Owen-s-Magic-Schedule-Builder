@@ -6,7 +6,12 @@ This Python script implements a simple graphical scheduling application
 using Tkinter.  It allows you to manage a list of employees, record their
 availability for each day of the week, assign shifts, detect conflicts
 between scheduled shifts and availability, and export the resulting
-schedule to a CSV file.  The application is intended as a starting
+schedule to a CSV file.
+
+If this opened in textedit, you've got some work to do, reference the README
+file included in this package to figure out how to actally use it.
+
+The application is intended as a starting
 point—you can extend it to handle multiple weeks, different shift types,
 or persistent storage.
 
@@ -28,31 +33,31 @@ Usage
 Run the script with Python 3 on macOS (or any platform with Tkinter):
 
 ```
-python3 schedule_builder_gui.py
-```
-
-The main window will appear with buttons to add employees and schedules,
-check for conflicts, and export the schedule.
-
 Limitations
 -----------
 
 * The schedule grid covers a single week (Saturday through Friday).  To
   extend it for multiple weeks, you could add additional columns or
   implement a tabbed interface.
-* Data is stored in memory only; if you exit the program, your data is
-  lost unless you export to CSV.
+* Data is automatically saved to ``autosave.json`` when you close the
+  application. Choose "Resume Last Session" at startup to continue where
+  you left off without exporting to CSV.
 
 """
 
 from __future__ import annotations
 
 import csv
+import json
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 from datetime import date, datetime, timedelta
+
+# File used to store the last session so the user can resume later.
+AUTOSAVE_FILE = "autosave.json"
 
 # Days of week used in the schedule and availability
 DAY_NAMES = [
@@ -204,6 +209,8 @@ class ScheduleApp(tk.Tk):
         # used to view content beyond the visible area.
         self.geometry("900x600")
         self.resizable(True, True)
+        # Save data when closing the window
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         # Data storage: list of Employee objects
         self.employees: List[Employee] = []
@@ -365,14 +372,22 @@ class ScheduleApp(tk.Tk):
         months = [f"{i:02d}" for i in range(1, 13)]
         days = [f"{i:02d}" for i in range(1, 32)]
 
-        tk.Label(dialog, text="Special Unavailable Dates").grid(
+        tk.Label(dialog, text="Special Unavailable Dates (up to 16)").grid(
             row=row_offset + 1 + len(DAY_NAMES), column=0, columnspan=2, pady=(10, 2)
         )
+        add_unavail_btn_row = row_offset + 2 + len(DAY_NAMES)
+        unavail_frame_row = row_offset + 3 + len(DAY_NAMES)
+        tk.Button(dialog, text="+", command=lambda: add_unavail_row()).grid(
+            row=add_unavail_btn_row, column=0, sticky="w", padx=5, pady=(0, 5)
+        )
         unavail_frame = tk.Frame(dialog)
-        unavail_frame.grid(row=row_offset + 2 + len(DAY_NAMES), column=0, columnspan=2, sticky="w")
+        unavail_frame.grid(row=unavail_frame_row, column=0, columnspan=2, sticky="w")
         unavail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar]] = []
 
         def add_unavail_row(y: str = "", m: str = "", d: str = "") -> None:
+            if len(unavail_rows) >= 16:
+                messagebox.showinfo("Limit Reached", "You can add up to 16 special unavailable dates.")
+                return
             row = len(unavail_rows)
             year_var = tk.StringVar(value=y or str(today.year))
             month_var = tk.StringVar(value=m or f"{today.month:02d}")
@@ -382,19 +397,22 @@ class ScheduleApp(tk.Tk):
             ttk.Combobox(unavail_frame, values=years, textvariable=year_var, width=5).grid(row=row, column=2, padx=1, pady=1)
             unavail_rows.append((year_var, month_var, day_var))
 
-        tk.Button(dialog, text="+", command=add_unavail_row).grid(
-            row=row_offset + 3 + len(DAY_NAMES), column=0, sticky="w", padx=5, pady=(0, 5)
-        )
-        add_unavail_row()
-
-        tk.Label(dialog, text="Special Available Dates").grid(
+        tk.Label(dialog, text="Special Available Dates (up to 16)").grid(
             row=row_offset + 4 + len(DAY_NAMES), column=0, columnspan=2, pady=(10, 2)
         )
+        add_avail_btn_row = row_offset + 5 + len(DAY_NAMES)
+        avail_frame_row = row_offset + 6 + len(DAY_NAMES)
+        tk.Button(dialog, text="+", command=lambda: add_avail_row()).grid(
+            row=add_avail_btn_row, column=0, sticky="w", padx=5, pady=(0, 5)
+        )
         avail_frame = tk.Frame(dialog)
-        avail_frame.grid(row=row_offset + 5 + len(DAY_NAMES), column=0, columnspan=2, sticky="w")
+        avail_frame.grid(row=avail_frame_row, column=0, columnspan=2, sticky="w")
         avail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar, tk.StringVar]] = []
 
         def add_avail_row(y: str = "", m: str = "", d: str = "", a: str = "OPEN AVAILABILITY") -> None:
+            if len(avail_rows) >= 16:
+                messagebox.showinfo("Limit Reached", "You can add up to 16 special available dates.")
+                return
             row = len(avail_rows)
             year_var = tk.StringVar(value=y or str(today.year))
             month_var = tk.StringVar(value=m or f"{today.month:02d}")
@@ -405,11 +423,6 @@ class ScheduleApp(tk.Tk):
             ttk.Combobox(avail_frame, values=years, textvariable=year_var, width=5).grid(row=row, column=2, padx=1, pady=1)
             ttk.Combobox(avail_frame, values=AVAILABILITY_OPTIONS, textvariable=avail_var, width=15).grid(row=row, column=3, padx=1, pady=1)
             avail_rows.append((year_var, month_var, day_var, avail_var))
-
-        tk.Button(dialog, text="+", command=add_avail_row).grid(
-            row=row_offset + 6 + len(DAY_NAMES), column=0, sticky="w", padx=5, pady=(0, 5)
-        )
-        add_avail_row()
 
         def save_employee() -> None:
             last_name = last_name_var.get().strip()
@@ -581,8 +594,9 @@ class ScheduleApp(tk.Tk):
                 else:
                     # Fallback to 7‑day header if schedule dates are not defined.
                     header = ["Last Name", "First Name"] + DAY_NAMES
-                # Append availability column headers so that availability can be saved and reloaded.
+                # Append availability and special date headers
                 header += [f"Availability {day}" for day in DAY_NAMES]
+                header += ["Special Unavailable", "Special Available"]
                 writer.writerow(header)
                 # Write one row per employee with schedule values and availability values.
                 for emp in self.employees:
@@ -592,7 +606,11 @@ class ScheduleApp(tk.Tk):
                         schedule_vals = [emp.schedule.get(day, "") for day in DAY_NAMES]
                     # Append availability values for each day of the week.
                     avail_vals = [emp.availability.get(day, "OPEN AVAILABILITY") for day in DAY_NAMES]
-                    row = [emp.last_name, emp.first_name] + schedule_vals + avail_vals
+                    unavail_str = ";".join(sorted(emp.special_unavailable))
+                    avail_str = ";".join(
+                        f"{iso}={val}" for iso, val in sorted(emp.special_available.items())
+                    )
+                    row = [emp.last_name, emp.first_name] + schedule_vals + avail_vals + [unavail_str, avail_str]
                     writer.writerow(row)
             messagebox.showinfo("Export Successful", f"Schedule exported to {file_path}")
         except Exception as e:
@@ -624,7 +642,7 @@ class ScheduleApp(tk.Tk):
                     self.tree.destroy()
                 self._build_widgets()
                 self._refresh_tree()
-                self.deiconify()
+            self.deiconify()
 
         def on_upload() -> None:
             # User opts to upload an existing schedule CSV.
@@ -634,6 +652,16 @@ class ScheduleApp(tk.Tk):
             # Ensure the main window is visible.
             self.deiconify()
 
+        def on_resume() -> None:
+            dialog.destroy()
+            if self._load_state():
+                self._build_widgets()
+                self._refresh_tree()
+                self.deiconify()
+            else:
+                messagebox.showinfo("Resume Failed", "No saved session found.")
+                self.destroy()
+
         def on_cancel() -> None:
             dialog.destroy()
             self.destroy()
@@ -642,6 +670,8 @@ class ScheduleApp(tk.Tk):
         btn_frame.pack(pady=10)
         tk.Button(btn_frame, text="Create New Schedule", command=on_new).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Upload CSV", command=on_upload).pack(side=tk.LEFT, padx=5)
+        if os.path.exists(AUTOSAVE_FILE):
+            tk.Button(btn_frame, text="Resume Last Session", command=on_resume).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Cancel", command=on_cancel).pack(side=tk.LEFT, padx=5)
         # Wait until the user makes a selection
         self.wait_window(dialog)
@@ -734,11 +764,12 @@ class ScheduleApp(tk.Tk):
 
     def _load_csv(self, file_path: str) -> None:
         """
-        Load schedule data from a CSV file.  The first row should contain
-        headers: 'Last Name', 'First Name' followed by 21 date strings.  For
-        each subsequent row, the first two values are names and the
-        remaining 21 values are shift assignments.  All employees are
-        imported with OPEN AVAILABILITY for every day.
+        Load schedule data from a CSV file. The header should include
+        'Last Name', 'First Name', 21 date columns, seven availability
+        columns, and optional columns for special unavailable and special
+        available dates. Each subsequent row contains the corresponding
+        values. Employees are imported with OPEN AVAILABILITY for any
+        missing fields.
         """
         with open(file_path, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
@@ -815,6 +846,26 @@ class ScheduleApp(tk.Tk):
                     avail_val = row[col_index].strip()
                     if avail_val:
                         emp.availability[day] = avail_val
+            special_unavail_idx = avail_start + len(DAY_NAMES)
+            special_avail_idx = special_unavail_idx + 1
+            if special_unavail_idx < len(row):
+                unavail_text = row[special_unavail_idx].strip()
+                if unavail_text:
+                    for dt in _parse_date_list(unavail_text.replace(";", ",")):
+                        emp.special_unavailable.add(dt.isoformat())
+            if special_avail_idx < len(row):
+                avail_text = row[special_avail_idx].strip()
+                if avail_text:
+                    for part in avail_text.split(";"):
+                        if not part.strip():
+                            continue
+                        if "=" in part:
+                            ds, val = part.split("=", 1)
+                        else:
+                            ds, val = part, "OPEN AVAILABILITY"
+                        parsed = _parse_date_list(ds.strip())
+                        if parsed:
+                            emp.special_available[parsed[0].isoformat()] = val.strip()
             self.employees.append(emp)
         # After loading, (re)build widgets to reflect the imported schedule dates
         # and refresh the tree.  Rebuilding ensures that the columns and headings
@@ -889,14 +940,22 @@ class ScheduleApp(tk.Tk):
         months = [f"{i:02d}" for i in range(1, 13)]
         days = [f"{i:02d}" for i in range(1, 32)]
 
-        tk.Label(dialog, text="Special Unavailable Dates").grid(
+        tk.Label(dialog, text="Special Unavailable Dates (up to 16)").grid(
             row=1 + len(DAY_NAMES), column=0, columnspan=2, pady=(10, 2)
         )
+        add_unavail_btn_row = 2 + len(DAY_NAMES)
+        unavail_frame_row = 3 + len(DAY_NAMES)
+        tk.Button(dialog, text="+", command=lambda: add_unavail_row()).grid(
+            row=add_unavail_btn_row, column=0, sticky="w", padx=5, pady=(0, 5)
+        )
         unavail_frame = tk.Frame(dialog)
-        unavail_frame.grid(row=2 + len(DAY_NAMES), column=0, columnspan=2, sticky="w")
+        unavail_frame.grid(row=unavail_frame_row, column=0, columnspan=2, sticky="w")
         unavail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar]] = []
 
         def add_unavail_row(y: str = "", m: str = "", d: str = "") -> None:
+            if len(unavail_rows) >= 16:
+                messagebox.showinfo("Limit Reached", "You can add up to 16 special unavailable dates.")
+                return
             row = len(unavail_rows)
             year_var = tk.StringVar(value=y or str(today.year))
             month_var = tk.StringVar(value=m or f"{today.month:02d}")
@@ -906,24 +965,29 @@ class ScheduleApp(tk.Tk):
             ttk.Combobox(unavail_frame, values=years, textvariable=year_var, width=5).grid(row=row, column=2, padx=1, pady=1)
             unavail_rows.append((year_var, month_var, day_var))
 
-        tk.Button(dialog, text="+", command=add_unavail_row).grid(
-            row=3 + len(DAY_NAMES), column=0, sticky="w", padx=5, pady=(0, 5)
-        )
         if emp.special_unavailable:
             for iso in sorted(emp.special_unavailable):
                 dt = date.fromisoformat(iso)
                 add_unavail_row(str(dt.year), f"{dt.month:02d}", f"{dt.day:02d}")
         else:
-            add_unavail_row()
+            pass
 
-        tk.Label(dialog, text="Special Available Dates").grid(
+        tk.Label(dialog, text="Special Available Dates (up to 16)").grid(
             row=4 + len(DAY_NAMES), column=0, columnspan=2, pady=(10, 2)
         )
+        add_avail_btn_row = 5 + len(DAY_NAMES)
+        avail_frame_row = 6 + len(DAY_NAMES)
+        tk.Button(dialog, text="+", command=lambda: add_avail_row()).grid(
+            row=add_avail_btn_row, column=0, sticky="w", padx=5, pady=(0, 5)
+        )
         avail_frame = tk.Frame(dialog)
-        avail_frame.grid(row=5 + len(DAY_NAMES), column=0, columnspan=2, sticky="w")
+        avail_frame.grid(row=avail_frame_row, column=0, columnspan=2, sticky="w")
         avail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar, tk.StringVar]] = []
 
         def add_avail_row(y: str = "", m: str = "", d: str = "", a: str = "OPEN AVAILABILITY") -> None:
+            if len(avail_rows) >= 16:
+                messagebox.showinfo("Limit Reached", "You can add up to 16 special available dates.")
+                return
             row = len(avail_rows)
             year_var = tk.StringVar(value=y or str(today.year))
             month_var = tk.StringVar(value=m or f"{today.month:02d}")
@@ -935,15 +999,12 @@ class ScheduleApp(tk.Tk):
             ttk.Combobox(avail_frame, values=AVAILABILITY_OPTIONS, textvariable=avail_var, width=15).grid(row=row, column=3, padx=1, pady=1)
             avail_rows.append((year_var, month_var, day_var, avail_var))
 
-        tk.Button(dialog, text="+", command=add_avail_row).grid(
-            row=6 + len(DAY_NAMES), column=0, sticky="w", padx=5, pady=(0, 5)
-        )
         if emp.special_available:
             for iso, val in sorted(emp.special_available.items()):
                 dt = date.fromisoformat(iso)
                 add_avail_row(str(dt.year), f"{dt.month:02d}", f"{dt.day:02d}", val)
         else:
-            add_avail_row()
+            pass
         # Save function
         def save_availability() -> None:
             for day in DAY_NAMES:
@@ -987,6 +1048,57 @@ class ScheduleApp(tk.Tk):
         btn_frame.grid(row=7 + len(DAY_NAMES), column=0, columnspan=2, pady=10)
         tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
         tk.Button(btn_frame, text="Save", command=save_availability).pack(side=tk.RIGHT, padx=5)
+
+    # ---- Persistence helpers ----
+    def _save_state(self) -> None:
+        """Write the current schedule and employees to ``AUTOSAVE_FILE``."""
+        try:
+            data = {
+                "schedule_dates": [dt.isoformat() for dt in self.schedule_dates],
+                "employees": [
+                    {
+                        "last_name": emp.last_name,
+                        "first_name": emp.first_name,
+                        "availability": emp.availability,
+                        "schedule": emp.schedule,
+                        "special_available": emp.special_available,
+                        "special_unavailable": list(emp.special_unavailable),
+                    }
+                    for emp in self.employees
+                ],
+            }
+            with open(AUTOSAVE_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+        except Exception:
+            pass
+
+    def _load_state(self) -> bool:
+        """Load the previous session from ``AUTOSAVE_FILE`` if it exists."""
+        if not os.path.exists(AUTOSAVE_FILE):
+            return False
+        try:
+            with open(AUTOSAVE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self.schedule_dates = [date.fromisoformat(d) for d in data.get("schedule_dates", [])]
+            self.employees = []
+            for ed in data.get("employees", []):
+                emp = Employee(ed.get("last_name", ""), ed.get("first_name", ""))
+                emp.availability = ed.get("availability", {})
+                emp.schedule = ed.get("schedule", {})
+                emp.special_available = ed.get("special_available", {})
+                emp.special_unavailable = set(ed.get("special_unavailable", []))
+                self.employees.append(emp)
+            if self.schedule_dates:
+                self.column_ids = [f"day_{i}" for i in range(len(self.schedule_dates))]
+                self.date_labels = [dt.strftime("%a %m/%d/%Y") for dt in self.schedule_dates]
+            return True
+        except Exception:
+            return False
+
+    def _on_close(self) -> None:
+        """Handle the window close event by saving state then exiting."""
+        self._save_state()
+        self.destroy()
 
 
 def main() -> None:
