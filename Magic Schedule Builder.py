@@ -660,8 +660,8 @@ class ScheduleApp(tk.Tk):
         self.date_labels = [dt.strftime("%a %m/%d/%Y") for dt in schedule_dates]
         # Reset employees list
         self.employees = []
-        # Import employee rows
-        for row in rows[1:]:
+        # Import employee rows (iterate over all remaining rows after the header)
+        for row in rows:
             if not row or all(not cell.strip() for cell in row):
                 continue
             last_name = row[0].strip()
