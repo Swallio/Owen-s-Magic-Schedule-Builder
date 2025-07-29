@@ -1,29 +1,30 @@
 from setuptools import setup
 
 APP = ["main.py"]
+DATA_FILES = ["icon.icns"]
 
 OPTIONS = {
     "iconfile": "icon.icns",
     "no_strip": True,
-    "packages": ["tkinter"],          # include _tkinter.so if you need it
-    "force_system_tk": False,         # don’t fall back to the old 8.5 stuff
-    "frameworks": [
-        "/Library/Frameworks/Tcl.framework",
-        "/Library/Frameworks/Tk.framework",
-    ],
+    # we already proved you don’t need Tk
+    "excludes": ["tkinter", "_tkinter", "tcl", "tk"],
+    "force_system_tk": False,
+
     "plist": {
-        # tell the stub exactly where the embedded python lives
-        "PyRuntimeLocations": [
-            "@executable_path/../Frameworks/Python.framework/Versions/3.11/Python"
-        ],
         "CFBundleName": "Magic Schedule Builder",
         "CFBundleIdentifier": "com.owen.magic-schedule-builder",
         "CFBundleShortVersionString": "1.0",
+
+        # ←--- THIS is what the stub looks for
+        "PyRuntimeLocations": [
+            "@executable_path/../Frameworks/Python.framework/Versions/3.11/Python"
+        ],
     },
 }
 
 setup(
     app=APP,
+    data_files=DATA_FILES,
     options={"py2app": OPTIONS},
     setup_requires=["py2app"],
     name="Magic Schedule Builder",
