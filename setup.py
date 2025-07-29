@@ -6,8 +6,9 @@ DATA_FILES = ["icon.icns"]
 OPTIONS = {
     "iconfile": "icon.icns",
     "no_strip": True,
-    # we already proved you don’t need Tk
-    "excludes": ["tkinter", "_tkinter", "tcl", "tk"],
+    # include Tk and Tcl so the GUI can run inside the bundled application
+    # removing the exclude list allows py2app to detect and bundle the
+    # required frameworks automatically
     "force_system_tk": False,
 
     "plist": {
@@ -19,6 +20,10 @@ OPTIONS = {
         "PyRuntimeLocations": [
             "@executable_path/../Frameworks/Python.framework/Versions/3.11/Python"
         ],
+        "PythonInfoDict": {
+            "PythonExecutable": "@executable_path/../Frameworks/Python.framework/Versions/3.11/Python",
+            "PythonShortVersion": "3.11",
+        },
     },
 }
 
