@@ -50,6 +50,8 @@ from __future__ import annotations
 import csv
 import json
 import os
+import sys
+import subprocess
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
 from dataclasses import dataclass, field
@@ -428,9 +430,17 @@ class ScheduleApp(tk.Tk):
         def save_employee() -> None:
             last_name = last_name_var.get().strip()
             first_name = first_name_var.get().strip()
-            if not last_name or not first_name:
-                messagebox.showerror("Error", "First and last names are required.")
+            if not first_name:
+                messagebox.showerror("Error", "First name is required.")
                 return
+            if not last_name and first_name.lower() != "lucy":
+                messagebox.showerror("Error", "Last name is required.")
+                return
+            if first_name.lower() == "lucy" and not last_name:
+                if messagebox.askyesno(
+                    "Lucy?", "hey that's my cat's name lol", parent=dialog
+                ):
+                    self._show_lucy_image()
             # Normalise availability: blank means OPEN AVAILABILITY
             availability = {}
             for day in DAY_NAMES:
@@ -490,16 +500,24 @@ class ScheduleApp(tk.Tk):
         dialog.transient(self)
         dialog.grab_set()
 
+        dialog.grid_rowconfigure(0, weight=1)
+        dialog.grid_columnconfigure(0, weight=1)
+
         canvas = tk.Canvas(dialog)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        canvas.grid(row=0, column=0, sticky="nsew")
         vscroll = tk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
-        vscroll.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas.configure(yscrollcommand=vscroll.set)
+        vscroll.grid(row=0, column=1, sticky="ns")
+        hscroll = tk.Scrollbar(dialog, orient="horizontal", command=canvas.xview)
+        hscroll.grid(row=1, column=0, sticky="ew")
+        canvas.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
         inner = tk.Frame(canvas)
         canvas.create_window((0,0), window=inner, anchor="nw")
-        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        inner.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
 
-        sections: List[Tuple[tk.StringVar, Dict[str, tk.StringVar]]] = []
+        sections: List[Tuple[tk.StringVar, Dict[str, tk.StringVar], Optional[tk.BooleanVar]]] = []
 
         if self.schedule_dates:
             date_iterable = self.schedule_dates
@@ -508,28 +526,59 @@ class ScheduleApp(tk.Tk):
             date_iterable = DAY_NAMES
             label_iterable = DAY_NAMES
 
+        first_inputs: Dict[str, tk.StringVar] | None = None
+
+        def clone_selected(*_: object) -> None:
+            if not sections or not first_inputs:
+                return
+            base = sections[0][1]
+            for _, inputs, c_var in sections[1:]:
+                if c_var and c_var.get():
+                    for key, var in base.items():
+                        inputs[key].set(var.get())
+
         def add_section(emp_index: int = 0) -> None:
             frame = tk.LabelFrame(inner, text=f"Employee {len(sections)+1}")
-            frame.pack(padx=5, pady=5, fill="x", expand=True)
+            frame.grid(row=0, column=len(sections), padx=5, pady=5, sticky="n")
             emp_var = tk.StringVar(value=names[emp_index])
-            ttk.Combobox(frame, values=names, textvariable=emp_var, state="readonly").grid(row=0, column=0, columnspan=2, pady=(0,5))
+            name_combo = ttk.Combobox(frame, values=names, textvariable=emp_var, state="readonly")
+            if sections:
+                name_combo.grid(row=0, column=0, pady=(0,5))
+            else:
+                name_combo.grid(row=0, column=0, columnspan=2, pady=(0,5))
+            clone_var: Optional[tk.BooleanVar] = None
+            if sections:  # not first employee
+                clone_var = tk.BooleanVar(value=False)
+                tk.Checkbutton(frame, text="Clone from first", variable=clone_var).grid(row=0, column=1, padx=5)
             inputs: Dict[str, tk.StringVar] = {}
             for idx, label in enumerate(label_iterable):
                 tk.Label(frame, text=f"{label}:").grid(row=1+idx, column=0, sticky="e", padx=5, pady=1)
                 var = tk.StringVar()
                 combo = ttk.Combobox(frame, textvariable=var, values=SHIFT_OPTIONS)
-                combo.grid(row=1+idx, column=1, padx=5, pady=1)
+                combo.grid(row=1+idx, column=1 if clone_var is None else 2, padx=5, pady=1)
                 combo['state'] = 'normal'
                 key = date_iterable[idx].isoformat() if self.schedule_dates else date_iterable[idx]
                 inputs[key] = var
-            sections.append((emp_var, inputs))
+            sections.append((emp_var, inputs, clone_var))
+
+            nonlocal first_inputs
+            if len(sections) == 1:
+                first_inputs = inputs
+                for v in inputs.values():
+                    v.trace_add("write", clone_selected)
+            else:
+                if clone_var and clone_var.get() and first_inputs:
+                    for key, fv in first_inputs.items():
+                        inputs[key].set(fv.get())
+                if clone_var:
+                    clone_var.trace_add("write", clone_selected)
 
         add_section()
 
-        tk.Button(dialog, text="+", command=add_section).pack(pady=5)
+        tk.Button(dialog, text="+", command=add_section).grid(row=2, column=0, pady=5, sticky="w")
 
         def save() -> None:
-            for emp_var, inputs in sections:
+            for emp_var, inputs, _ in sections:
                 name = emp_var.get()
                 if not name:
                     continue
@@ -547,7 +596,7 @@ class ScheduleApp(tk.Tk):
             dialog.destroy()
 
         btn = tk.Frame(dialog)
-        btn.pack(pady=10)
+        btn.grid(row=3, column=0, columnspan=2, pady=10)
         tk.Button(btn, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
         tk.Button(btn, text="Save", command=save).pack(side=tk.RIGHT, padx=5)
 
@@ -616,6 +665,19 @@ class ScheduleApp(tk.Tk):
             messagebox.showinfo("Export Successful", f"Schedule exported to {file_path}")
         except Exception as e:
             messagebox.showerror("Export Failed", f"An error occurred while exporting:\n{e}")
+
+    def _show_lucy_image(self) -> None:
+        """Open the Lucy.DNG image using the default system viewer."""
+        path = os.path.join(os.path.dirname(__file__), "Lucy.DNG")
+        try:
+            if sys.platform.startswith("darwin"):
+                subprocess.Popen(["open", path])
+            elif os.name == "nt":
+                os.startfile(path)  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except Exception as exc:
+            messagebox.showerror("Error", f"Could not open image:\n{exc}")
 
     # ---- Start‑up methods ----
     def _show_start_dialog(self) -> None:
