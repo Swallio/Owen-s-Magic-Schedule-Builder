@@ -51,7 +51,7 @@ import csv
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Tuple
 from datetime import date, datetime, timedelta
 
 # Days of week used in the schedule and availability
@@ -94,6 +94,26 @@ AVAILABILITY_OPTIONS: List[str] = [
 ]
 
 
+def _parse_date_list(text: str) -> List[date]:
+    """Parse a comma-separated list of date strings into a list of dates."""
+    dates: List[date] = []
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        parsed: Optional[date] = None
+        for fmt in ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"):
+            try:
+                parsed = datetime.strptime(part, fmt).date()
+                break
+            except Exception:
+                continue
+        if not parsed:
+            raise ValueError(f"Could not parse date '{part}'")
+        dates.append(parsed)
+    return dates
+
+
 @dataclass
 class Employee:
     """Represent an employee with a name, availability and schedule."""
@@ -101,6 +121,11 @@ class Employee:
     first_name: str
     availability: Dict[str, str] = field(default_factory=dict)
     schedule: Dict[str, str] = field(default_factory=dict)
+    # Specific dates where normal availability is overridden. Values are
+    # stored as ISO date strings (YYYY-MM-DD).
+    # Mapping of ISO date -> availability string for special available dates
+    special_available: Dict[str, str] = field(default_factory=dict)
+    special_unavailable: Set[str] = field(default_factory=set)
 
     def conflicts(self, schedule_dates: List[date]) -> List[str]:
         """
@@ -110,8 +135,9 @@ class Employee:
         the week is UNAVAILABLE.  The schedule_dates list should contain the
         dates (in order) covering the schedule.
         """
-        # Compute a list of labels for dates where the employee is scheduled
-        # on a day that their weekly availability marks as UNAVAILABLE.
+        # Compute a list of labels for dates where the employee is scheduled on
+        # a day that is unavailable either via weekly availability or a special
+        # unavailable override.
         conflict_labels: List[str] = []
         for idx, dt in enumerate(schedule_dates):
             # Retrieve the shift for this specific calendar date (using ISO format key).
@@ -119,13 +145,21 @@ class Employee:
             # If there is no shift or it is marked OFF or RTO, skip conflict check.
             if not shift or shift.upper() in {"OFF", "RTO"}:
                 continue
+            # First check explicit overrides for this date.
+            key = dt.isoformat()
+            if key in self.special_unavailable:
+                conflict_labels.append(dt.strftime("%a %m/%d/%Y"))
+                continue
+            if key in self.special_available:
+                avail_override = self.special_available.get(key, "OPEN AVAILABILITY").strip()
+                if avail_override.upper() == "UNAVAILABLE":
+                    conflict_labels.append(dt.strftime("%a %m/%d/%Y"))
+                continue
             # Determine the day of the week relative to the start of the schedule.
-            # We use modulo to map the index into our 7‑day availability list (Saturday–Friday).
             day_index = idx % len(DAY_NAMES)
             day_name = DAY_NAMES[day_index]
             # Look up the employee's availability for that day; default to open.
             avail = self.availability.get(day_name, "OPEN AVAILABILITY").strip()
-            # If marked UNAVAILABLE, record this date as a conflict.
             if avail.upper() == "UNAVAILABLE":
                 conflict_labels.append(dt.strftime("%a %m/%d/%Y"))
         return conflict_labels
@@ -141,6 +175,15 @@ class Employee:
         for idx, dt in enumerate(schedule_dates):
             shift = self.schedule.get(dt.isoformat(), "").strip()
             if not shift or shift.upper() in {"OFF", "RTO"}:
+                continue
+            key = dt.isoformat()
+            if key in self.special_unavailable:
+                indices.append(idx)
+                continue
+            if key in self.special_available:
+                avail_override = self.special_available.get(key, "OPEN AVAILABILITY").strip()
+                if avail_override.upper() == "UNAVAILABLE":
+                    indices.append(idx)
                 continue
             day_index = idx % len(DAY_NAMES)
             day_name = DAY_NAMES[day_index]
@@ -316,6 +359,58 @@ class ScheduleApp(tk.Tk):
             combo['state'] = 'normal'  # allow typing custom values
             avail_vars[day] = var
 
+        # Special date overrides using comboboxes
+        today = date.today()
+        years = [str(today.year + i) for i in range(0, 3)]
+        months = [f"{i:02d}" for i in range(1, 13)]
+        days = [f"{i:02d}" for i in range(1, 32)]
+
+        tk.Label(dialog, text="Special Unavailable Dates").grid(
+            row=row_offset + 1 + len(DAY_NAMES), column=0, columnspan=2, pady=(10, 2)
+        )
+        unavail_frame = tk.Frame(dialog)
+        unavail_frame.grid(row=row_offset + 2 + len(DAY_NAMES), column=0, columnspan=2, sticky="w")
+        unavail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar]] = []
+
+        def add_unavail_row(y: str = "", m: str = "", d: str = "") -> None:
+            row = len(unavail_rows)
+            year_var = tk.StringVar(value=y or str(today.year))
+            month_var = tk.StringVar(value=m or f"{today.month:02d}")
+            day_var = tk.StringVar(value=d or f"{today.day:02d}")
+            ttk.Combobox(unavail_frame, values=months, textvariable=month_var, width=3).grid(row=row, column=0, padx=1, pady=1)
+            ttk.Combobox(unavail_frame, values=days, textvariable=day_var, width=3).grid(row=row, column=1, padx=1, pady=1)
+            ttk.Combobox(unavail_frame, values=years, textvariable=year_var, width=5).grid(row=row, column=2, padx=1, pady=1)
+            unavail_rows.append((year_var, month_var, day_var))
+
+        tk.Button(dialog, text="+", command=add_unavail_row).grid(
+            row=row_offset + 3 + len(DAY_NAMES), column=0, sticky="w", padx=5, pady=(0, 5)
+        )
+        add_unavail_row()
+
+        tk.Label(dialog, text="Special Available Dates").grid(
+            row=row_offset + 4 + len(DAY_NAMES), column=0, columnspan=2, pady=(10, 2)
+        )
+        avail_frame = tk.Frame(dialog)
+        avail_frame.grid(row=row_offset + 5 + len(DAY_NAMES), column=0, columnspan=2, sticky="w")
+        avail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar, tk.StringVar]] = []
+
+        def add_avail_row(y: str = "", m: str = "", d: str = "", a: str = "OPEN AVAILABILITY") -> None:
+            row = len(avail_rows)
+            year_var = tk.StringVar(value=y or str(today.year))
+            month_var = tk.StringVar(value=m or f"{today.month:02d}")
+            day_var = tk.StringVar(value=d or f"{today.day:02d}")
+            avail_var = tk.StringVar(value=a)
+            ttk.Combobox(avail_frame, values=months, textvariable=month_var, width=3).grid(row=row, column=0, padx=1, pady=1)
+            ttk.Combobox(avail_frame, values=days, textvariable=day_var, width=3).grid(row=row, column=1, padx=1, pady=1)
+            ttk.Combobox(avail_frame, values=years, textvariable=year_var, width=5).grid(row=row, column=2, padx=1, pady=1)
+            ttk.Combobox(avail_frame, values=AVAILABILITY_OPTIONS, textvariable=avail_var, width=15).grid(row=row, column=3, padx=1, pady=1)
+            avail_rows.append((year_var, month_var, day_var, avail_var))
+
+        tk.Button(dialog, text="+", command=add_avail_row).grid(
+            row=row_offset + 6 + len(DAY_NAMES), column=0, sticky="w", padx=5, pady=(0, 5)
+        )
+        add_avail_row()
+
         def save_employee() -> None:
             last_name = last_name_var.get().strip()
             first_name = first_name_var.get().strip()
@@ -327,12 +422,44 @@ class ScheduleApp(tk.Tk):
             for day in DAY_NAMES:
                 val = avail_vars[day].get().strip()
                 availability[day] = val if val else "OPEN AVAILABILITY"
-            self.employees.append(Employee(last_name=last_name, first_name=first_name, availability=availability))
+
+            special_unavail: Set[str] = set()
+            for y_var, m_var, d_var in unavail_rows:
+                y, m, d = y_var.get().strip(), m_var.get().strip(), d_var.get().strip()
+                if not (y and m and d):
+                    continue
+                try:
+                    dt = date(int(y), int(m), int(d))
+                except Exception:
+                    messagebox.showerror("Invalid Date", "One or more special unavailable dates are invalid.")
+                    return
+                special_unavail.add(dt.isoformat())
+
+            special_avail: Dict[str, str] = {}
+            for y_var, m_var, d_var, a_var in avail_rows:
+                y, m, d = y_var.get().strip(), m_var.get().strip(), d_var.get().strip()
+                if not (y and m and d):
+                    continue
+                try:
+                    dt = date(int(y), int(m), int(d))
+                except Exception:
+                    messagebox.showerror("Invalid Date", "One or more special available dates are invalid.")
+                    return
+                val = a_var.get().strip() or "OPEN AVAILABILITY"
+                special_avail[dt.isoformat()] = val
+            emp = Employee(
+                last_name=last_name,
+                first_name=first_name,
+                availability=availability,
+                special_available=special_avail,
+                special_unavailable=special_unavail,
+            )
+            self.employees.append(emp)
             self._refresh_tree()
             dialog.destroy()
 
         btn_frame = tk.Frame(dialog)
-        btn_frame.grid(row=row_offset + 1 + len(DAY_NAMES), column=0, columnspan=2, pady=10)
+        btn_frame.grid(row=row_offset + 7 + len(DAY_NAMES), column=0, columnspan=2, pady=10)
         tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
         tk.Button(btn_frame, text="Save", command=save_employee).pack(side=tk.RIGHT, padx=5)
 
@@ -660,8 +787,8 @@ class ScheduleApp(tk.Tk):
         self.date_labels = [dt.strftime("%a %m/%d/%Y") for dt in schedule_dates]
         # Reset employees list
         self.employees = []
-        # Import employee rows
-        for row in rows[1:]:
+        # Import employee rows (iterate over all remaining rows after the header)
+        for row in rows:
             if not row or all(not cell.strip() for cell in row):
                 continue
             last_name = row[0].strip()
@@ -755,6 +882,68 @@ class ScheduleApp(tk.Tk):
             combo.grid(row=1 + idx, column=1, padx=5, pady=2)
             combo['state'] = 'normal'
             avail_vars[day] = var
+
+        # Special date override widgets
+        today = date.today()
+        years = [str(today.year + i) for i in range(0, 3)]
+        months = [f"{i:02d}" for i in range(1, 13)]
+        days = [f"{i:02d}" for i in range(1, 32)]
+
+        tk.Label(dialog, text="Special Unavailable Dates").grid(
+            row=1 + len(DAY_NAMES), column=0, columnspan=2, pady=(10, 2)
+        )
+        unavail_frame = tk.Frame(dialog)
+        unavail_frame.grid(row=2 + len(DAY_NAMES), column=0, columnspan=2, sticky="w")
+        unavail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar]] = []
+
+        def add_unavail_row(y: str = "", m: str = "", d: str = "") -> None:
+            row = len(unavail_rows)
+            year_var = tk.StringVar(value=y or str(today.year))
+            month_var = tk.StringVar(value=m or f"{today.month:02d}")
+            day_var = tk.StringVar(value=d or f"{today.day:02d}")
+            ttk.Combobox(unavail_frame, values=months, textvariable=month_var, width=3).grid(row=row, column=0, padx=1, pady=1)
+            ttk.Combobox(unavail_frame, values=days, textvariable=day_var, width=3).grid(row=row, column=1, padx=1, pady=1)
+            ttk.Combobox(unavail_frame, values=years, textvariable=year_var, width=5).grid(row=row, column=2, padx=1, pady=1)
+            unavail_rows.append((year_var, month_var, day_var))
+
+        tk.Button(dialog, text="+", command=add_unavail_row).grid(
+            row=3 + len(DAY_NAMES), column=0, sticky="w", padx=5, pady=(0, 5)
+        )
+        if emp.special_unavailable:
+            for iso in sorted(emp.special_unavailable):
+                dt = date.fromisoformat(iso)
+                add_unavail_row(str(dt.year), f"{dt.month:02d}", f"{dt.day:02d}")
+        else:
+            add_unavail_row()
+
+        tk.Label(dialog, text="Special Available Dates").grid(
+            row=4 + len(DAY_NAMES), column=0, columnspan=2, pady=(10, 2)
+        )
+        avail_frame = tk.Frame(dialog)
+        avail_frame.grid(row=5 + len(DAY_NAMES), column=0, columnspan=2, sticky="w")
+        avail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar, tk.StringVar]] = []
+
+        def add_avail_row(y: str = "", m: str = "", d: str = "", a: str = "OPEN AVAILABILITY") -> None:
+            row = len(avail_rows)
+            year_var = tk.StringVar(value=y or str(today.year))
+            month_var = tk.StringVar(value=m or f"{today.month:02d}")
+            day_var = tk.StringVar(value=d or f"{today.day:02d}")
+            avail_var = tk.StringVar(value=a)
+            ttk.Combobox(avail_frame, values=months, textvariable=month_var, width=3).grid(row=row, column=0, padx=1, pady=1)
+            ttk.Combobox(avail_frame, values=days, textvariable=day_var, width=3).grid(row=row, column=1, padx=1, pady=1)
+            ttk.Combobox(avail_frame, values=years, textvariable=year_var, width=5).grid(row=row, column=2, padx=1, pady=1)
+            ttk.Combobox(avail_frame, values=AVAILABILITY_OPTIONS, textvariable=avail_var, width=15).grid(row=row, column=3, padx=1, pady=1)
+            avail_rows.append((year_var, month_var, day_var, avail_var))
+
+        tk.Button(dialog, text="+", command=add_avail_row).grid(
+            row=6 + len(DAY_NAMES), column=0, sticky="w", padx=5, pady=(0, 5)
+        )
+        if emp.special_available:
+            for iso, val in sorted(emp.special_available.items()):
+                dt = date.fromisoformat(iso)
+                add_avail_row(str(dt.year), f"{dt.month:02d}", f"{dt.day:02d}", val)
+        else:
+            add_avail_row()
         # Save function
         def save_availability() -> None:
             for day in DAY_NAMES:
@@ -763,11 +952,39 @@ class ScheduleApp(tk.Tk):
                     emp.availability[day] = val
                 else:
                     emp.availability[day] = "OPEN AVAILABILITY"
+
+            new_unavail: Set[str] = set()
+            for y_var, m_var, d_var in unavail_rows:
+                y, m, d = y_var.get().strip(), m_var.get().strip(), d_var.get().strip()
+                if not (y and m and d):
+                    continue
+                try:
+                    dt = date(int(y), int(m), int(d))
+                except Exception:
+                    messagebox.showerror("Invalid Date", "One or more special unavailable dates are invalid.")
+                    return
+                new_unavail.add(dt.isoformat())
+
+            new_avail: Dict[str, str] = {}
+            for y_var, m_var, d_var, a_var in avail_rows:
+                y, m, d = y_var.get().strip(), m_var.get().strip(), d_var.get().strip()
+                if not (y and m and d):
+                    continue
+                try:
+                    dt = date(int(y), int(m), int(d))
+                except Exception:
+                    messagebox.showerror("Invalid Date", "One or more special available dates are invalid.")
+                    return
+                val = a_var.get().strip() or "OPEN AVAILABILITY"
+                new_avail[dt.isoformat()] = val
+
+            emp.special_unavailable = new_unavail
+            emp.special_available = new_avail
             self._refresh_tree()
             dialog.destroy()
         # Buttons
         btn_frame = tk.Frame(dialog)
-        btn_frame.grid(row=1 + len(DAY_NAMES), column=0, columnspan=2, pady=10)
+        btn_frame.grid(row=7 + len(DAY_NAMES), column=0, columnspan=2, pady=10)
         tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
         tk.Button(btn_frame, text="Save", command=save_availability).pack(side=tk.RIGHT, padx=5)
 
