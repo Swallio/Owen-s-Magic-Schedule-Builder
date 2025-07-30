@@ -477,6 +477,7 @@ class ScheduleApp(tk.Tk):
             if not last_name and first_name.lower() != "lucy":
                 messagebox.showerror("Error", "Last name is required.")
                 return
+            # This is what detects when to show you a picture of my cat lol.
             if first_name.lower() == "lucy" and not last_name:
                 if messagebox.askyesno(
                     "Lucy?", "hey that's my cat's name lol", parent=dialog
