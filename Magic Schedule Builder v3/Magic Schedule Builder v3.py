@@ -259,6 +259,7 @@ class ScheduleApp(tk.Tk):
         tk.Button(btn_frame, text="Edit Availability", command=self._edit_availability_dialog).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Check Conflicts", command=self._check_conflicts).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Export to CSV", command=self._export_to_csv).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Import CSV", command=self._append_csv_dialog).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Remove Employee", command=self._remove_employee).pack(side=tk.LEFT, padx=5)
 
         # Determine dynamic columns based on schedule dates.  Use simple IDs for
@@ -477,78 +478,78 @@ class ScheduleApp(tk.Tk):
         tk.Button(btn_frame, text="Save", command=save_employee).pack(side=tk.RIGHT, padx=5)
 
     def _add_schedule_dialog(self) -> None:
-        """Show a dialog to add or update schedule for a selected employee."""
-        # Ensure there is at least one employee before adding schedules.
+        """Show a dialog to add or update schedules for one or more employees."""
         if not self.employees:
             messagebox.showinfo("No Employees", "Please add an employee first.")
             return
-        # Prompt the user to select which employee's schedule to edit using a simple list with indices.
+
         names = [f"{emp.first_name} {emp.last_name}" for emp in self.employees]
-        index = simpledialog.askinteger(
-            "Select Employee",
-            "Enter the number of the employee to edit schedule:\n" +
-            "\n".join(f"{i+1}. {name}" for i, name in enumerate(names)),
-            parent=self,
-            minvalue=1,
-            maxvalue=len(names)
-        )
-        if index is None:
-            return
-        emp = self.employees[index - 1]
-        # Build a dialog window for editing the schedule of the selected employee.
+
         dialog = tk.Toplevel(self)
-        dialog.title(f"Schedule for {emp.first_name} {emp.last_name}")
+        dialog.title("Add/Update Schedule")
         dialog.transient(self)
         dialog.grab_set()
-        tk.Label(dialog, text=(
-            "Select or enter a shift for each date.\n"
-            "Leave blank to keep the existing value or indicate no shift."
-        )).grid(row=0, column=0, columnspan=2, pady=(0, 5))
-        # Prepare input variables keyed by ISO date string.
-        inputs: Dict[str, tk.StringVar] = {}
-        # If schedule dates are defined, use them; otherwise fall back to 7‑day list.
+
+        canvas = tk.Canvas(dialog)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vscroll = tk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
+        vscroll.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.configure(yscrollcommand=vscroll.set)
+        inner = tk.Frame(canvas)
+        canvas.create_window((0,0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+        sections: List[Tuple[tk.StringVar, Dict[str, tk.StringVar]]] = []
+
         if self.schedule_dates:
             date_iterable = self.schedule_dates
             label_iterable = self.date_labels
         else:
-            # Use current day names and treat them as one week; use dummy dates for keys.
-            # Create a list of (key, label) pairs.
-            date_iterable = [day for day in DAY_NAMES]
+            date_iterable = DAY_NAMES
             label_iterable = DAY_NAMES
-        # Create entry widgets for each date or day.
-        for idx, label in enumerate(label_iterable):
-            # Determine the key used to store this schedule entry.
-            if self.schedule_dates:
-                dt = date_iterable[idx]
-                key = dt.isoformat()
-                default_val = emp.schedule.get(key, "")
-            else:
-                day = date_iterable[idx]
-                key = day
-                default_val = emp.schedule.get(day, "")
-            tk.Label(dialog, text=f"{label}:").grid(row=1 + idx, column=0, sticky="e", padx=5, pady=2)
-            var = tk.StringVar(value=default_val)
-            combo = ttk.Combobox(dialog, textvariable=var, values=SHIFT_OPTIONS)
-            combo.grid(row=1 + idx, column=1, padx=5, pady=2)
-            combo['state'] = 'normal'  # allow typing custom values
-            inputs[key] = var
-        # Function to save schedule changes back to the employee.
-        def save_schedule() -> None:
-            # Iterate over all inputs and update the employee's schedule dictionary.
-            for key, var in inputs.items():
-                val = var.get().strip()
-                if val:
-                    emp.schedule[key] = val
-                elif key in emp.schedule:
-                    # If the cell was cleared, remove the key from the schedule.
-                    emp.schedule.pop(key)
+
+        def add_section(emp_index: int = 0) -> None:
+            frame = tk.LabelFrame(inner, text=f"Employee {len(sections)+1}")
+            frame.pack(padx=5, pady=5, fill="x", expand=True)
+            emp_var = tk.StringVar(value=names[emp_index])
+            ttk.Combobox(frame, values=names, textvariable=emp_var, state="readonly").grid(row=0, column=0, columnspan=2, pady=(0,5))
+            inputs: Dict[str, tk.StringVar] = {}
+            for idx, label in enumerate(label_iterable):
+                tk.Label(frame, text=f"{label}:").grid(row=1+idx, column=0, sticky="e", padx=5, pady=1)
+                var = tk.StringVar()
+                combo = ttk.Combobox(frame, textvariable=var, values=SHIFT_OPTIONS)
+                combo.grid(row=1+idx, column=1, padx=5, pady=1)
+                combo['state'] = 'normal'
+                key = date_iterable[idx].isoformat() if self.schedule_dates else date_iterable[idx]
+                inputs[key] = var
+            sections.append((emp_var, inputs))
+
+        add_section()
+
+        tk.Button(dialog, text="+", command=add_section).pack(pady=5)
+
+        def save() -> None:
+            for emp_var, inputs in sections:
+                name = emp_var.get()
+                if not name:
+                    continue
+                try:
+                    emp = self.employees[names.index(name)]
+                except ValueError:
+                    continue
+                for key, var in inputs.items():
+                    val = var.get().strip()
+                    if val:
+                        emp.schedule[key] = val
+                    elif key in emp.schedule:
+                        emp.schedule.pop(key)
             self._refresh_tree()
             dialog.destroy()
-        # Buttons for cancel and save actions.
-        btn_frame = tk.Frame(dialog)
-        btn_frame.grid(row=1 + len(label_iterable), column=0, columnspan=2, pady=10)
-        tk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
-        tk.Button(btn_frame, text="Save", command=save_schedule).pack(side=tk.RIGHT, padx=5)
+
+        btn = tk.Frame(dialog)
+        btn.pack(pady=10)
+        tk.Button(btn, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
+        tk.Button(btn, text="Save", command=save).pack(side=tk.RIGHT, padx=5)
 
     def _check_conflicts(self) -> None:
         """Update row colouring based on conflict detection and show a summary."""
@@ -762,14 +763,30 @@ class ScheduleApp(tk.Tk):
             # Return to start dialog on failure
             self._show_start_dialog()
 
-    def _load_csv(self, file_path: str) -> None:
+    def _append_csv_dialog(self) -> None:
+        """Prompt the user to select a CSV file and append its data."""
+        file_path = filedialog.askopenfilename(
+            parent=self,
+            title="Import Schedule CSV",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+        )
+        if not file_path:
+            return
+        try:
+            self._load_csv(file_path, append=True)
+        except Exception as exc:
+            messagebox.showerror("Import Error", f"Failed to import CSV:\n{exc}")
+
+    def _load_csv(self, file_path: str, append: bool = False) -> None:
         """
         Load schedule data from a CSV file. The header should include
         'Last Name', 'First Name', 21 date columns, seven availability
         columns, and optional columns for special unavailable and special
         available dates. Each subsequent row contains the corresponding
         values. Employees are imported with OPEN AVAILABILITY for any
-        missing fields.
+        missing fields. When ``append`` is ``True`` the parsed employees are
+        appended to the existing list and the schedule dates must match.
         """
         with open(file_path, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
@@ -813,11 +830,15 @@ class ScheduleApp(tk.Tk):
                 raise ValueError(f"Could not parse date '{ds}' in header")
             schedule_dates.append(parsed)
         # Set schedule dates and labels
-        self.schedule_dates = schedule_dates
-        self.column_ids = [f"day_{i}" for i in range(len(schedule_dates))]
-        self.date_labels = [dt.strftime("%a %m/%d/%Y") for dt in schedule_dates]
-        # Reset employees list
-        self.employees = []
+        if append and self.schedule_dates:
+            if self.schedule_dates != schedule_dates:
+                raise ValueError("CSV dates do not match existing schedule")
+        else:
+            self.schedule_dates = schedule_dates
+            self.column_ids = [f"day_{i}" for i in range(len(schedule_dates))]
+            self.date_labels = [dt.strftime("%a %m/%d/%Y") for dt in schedule_dates]
+            if not append:
+                self.employees = []
         # Import employee rows (iterate over all remaining rows after the header)
         for row in rows:
             if not row or all(not cell.strip() for cell in row):
@@ -905,19 +926,30 @@ class ScheduleApp(tk.Tk):
         if not self.employees:
             messagebox.showinfo("No Employees", "Please add an employee first.")
             return
-        # Prompt the user to select which employee's availability to edit
+        # Prompt the user to select which employee's availability to edit using a dropdown
         names = [f"{emp.first_name} {emp.last_name}" for emp in self.employees]
-        index = simpledialog.askinteger(
-            "Select Employee",
-            "Enter the number of the employee to edit availability:\n" +
-            "\n".join(f"{i+1}. {name}" for i, name in enumerate(names)),
-            parent=self,
-            minvalue=1,
-            maxvalue=len(names)
-        )
-        if index is None:
+        sel = tk.Toplevel(self)
+        sel.title("Select Employee")
+        sel.transient(self)
+        sel.grab_set()
+        tk.Label(sel, text="Select employee:").pack(padx=10, pady=5)
+        emp_var = tk.StringVar(value=names[0])
+        ttk.Combobox(sel, values=names, textvariable=emp_var, state="readonly").pack(padx=10, pady=5)
+
+        chosen: List[int] = []
+
+        def on_ok() -> None:
+            try:
+                chosen.append(names.index(emp_var.get()))
+            except ValueError:
+                pass
+            sel.destroy()
+
+        tk.Button(sel, text="OK", command=on_ok).pack(pady=5)
+        self.wait_window(sel)
+        if not chosen:
             return
-        emp = self.employees[index - 1]
+        emp = self.employees[chosen[0]]
         # Create dialog window
         dialog = tk.Toplevel(self)
         dialog.title(f"Edit Availability for {emp.first_name} {emp.last_name}")
