@@ -57,6 +57,7 @@ from tkinter import ttk, messagebox, simpledialog, filedialog
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 from datetime import date, datetime, timedelta
+import re
 
 # File used to store the last session so the user can resume later.
 AUTOSAVE_FILE = "autosave.json"
@@ -99,6 +100,43 @@ AVAILABILITY_OPTIONS: List[str] = [
     "Open after 10", "Open after 11", "Open after 12",
     "Open after 1", "Open after 2", "Open after 3", "Open after 4",
 ]
+
+
+def _parse_shift_duration(shift: str) -> float:
+    """Return the duration in hours for a shift string like '8-5'."""
+    s = shift.strip()
+    if not s or s.upper() in {"OFF", "RTO", "STORE SCHEDULE"}:
+        return 0.0
+    m = re.match(r"(\d{1,2})(?:[:.](\d{2}))?\s*-\s*(\d{1,2})(?:[:.](\d{2}))?", s)
+    if not m:
+        return 0.0
+    sh, sm, eh, em = m.groups()
+    start = int(sh) + (int(sm or 0) / 60)
+    end = int(eh) + (int(em or 0) / 60)
+    if start <= 6:
+        start += 12
+    if end <= start:
+        end += 12
+    return max(0.0, end - start)
+
+
+def _hours_from_shifts(shifts: List[str]) -> Tuple[List[float], List[float]]:
+    """Calculate weekly hours before and after lunch deductions."""
+    raw = [0.0, 0.0, 0.0]
+    adj = [0.0, 0.0, 0.0]
+    for idx, s in enumerate(shifts):
+        dur = _parse_shift_duration(s)
+        week = idx // 7
+        if week >= 3:
+            week = 2
+        raw[week] += dur
+        adj_dur = dur
+        if dur >= 8:
+            adj_dur -= 1
+        elif dur > 6:
+            adj_dur -= 0.5
+        adj[week] += max(0.0, adj_dur)
+    return raw, adj
 
 
 def _parse_date_list(text: str) -> List[date]:
@@ -262,6 +300,7 @@ class ScheduleApp(tk.Tk):
         # Button to show a read‑only calendar view of all availability
         tk.Button(btn_frame, text="Show Availability", command=self._show_availability).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Check Conflicts", command=self._check_conflicts).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Check Hours", command=self._check_hours).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Export to CSV", command=self._export_to_csv).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Import CSV", command=self._append_csv_dialog).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Remove Employee", command=self._remove_employee).pack(side=tk.LEFT, padx=5)
@@ -438,6 +477,7 @@ class ScheduleApp(tk.Tk):
             if not last_name and first_name.lower() != "lucy":
                 messagebox.showerror("Error", "Last name is required.")
                 return
+            # This is what detects when to show you a picture of my cat lol.
             if first_name.lower() == "lucy" and not last_name:
                 if messagebox.askyesno(
                     "Lucy?", "hey that's my cat's name lol", parent=dialog
@@ -563,6 +603,26 @@ class ScheduleApp(tk.Tk):
                 inputs[key] = var
             sections.append((emp_var, inputs, clone_var))
 
+            def load_existing(*_: object) -> None:
+                """Populate fields with the currently selected employee's schedule."""
+                try:
+                    emp = self.employees[names.index(emp_var.get())]
+                except ValueError:
+                    return
+                ordered_keys = [
+                    d.isoformat() if hasattr(d, "isoformat") else d
+                    for d in date_iterable
+                ]
+                for idx, key in enumerate(ordered_keys):
+                    val = emp.schedule.get(key, "")
+                    # Fallback to day-name keys when schedule uses weekly labels
+                    if not val and self.schedule_dates:
+                        val = emp.schedule.get(DAY_NAMES[idx % 7], "")
+                    inputs[key].set(val)
+
+            name_combo.bind("<<ComboboxSelected>>", load_existing)
+            load_existing()
+
             nonlocal first_inputs
             if len(sections) == 1:
                 first_inputs = inputs
@@ -578,6 +638,22 @@ class ScheduleApp(tk.Tk):
         add_section()
 
         tk.Button(dialog, text="+", command=add_section).grid(row=2, column=0, pady=5, sticky="w")
+
+        def check_hours() -> None:
+            lines: List[str] = []
+            for emp_var, inputs, _ in sections:
+                name = emp_var.get()
+                if not name:
+                    continue
+                ordered_keys = [d.isoformat() if hasattr(d, 'isoformat') else d for d in date_iterable]
+                shift_list = [inputs[k].get().strip() for k in ordered_keys]
+                raw, adj = _hours_from_shifts(shift_list)
+                segs = [f"W{i+1}: {raw[i]:.1f}/{adj[i]:.1f}" for i in range(3)]
+                lines.append(f"{name}: " + ", ".join(segs))
+            if lines:
+                messagebox.showinfo("Weekly Hours", "Total hours (raw/adjusted):\n\n" + "\n".join(lines), parent=dialog)
+            else:
+                messagebox.showinfo("No Data", "No employees to calculate hours for.", parent=dialog)
 
         def save() -> None:
             for emp_var, inputs, _ in sections:
@@ -603,6 +679,7 @@ class ScheduleApp(tk.Tk):
         tk.Button(btn, text="Save", command=save).pack(side=tk.RIGHT, padx=5)
         # Allow quick reference of employee availability while editing
         tk.Button(btn, text="Show Availability", command=lambda: self._show_availability(dialog)).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn, text="Check Hours", command=lambda: check_hours()).pack(side=tk.LEFT, padx=5)
 
     def _check_conflicts(self) -> None:
         """Update row colouring based on conflict detection and show a summary."""
@@ -623,6 +700,22 @@ class ScheduleApp(tk.Tk):
             messagebox.showwarning("Conflicts Detected", "The following conflicts were found:\n\n" + "\n".join(messages))
         else:
             messagebox.showinfo("No Conflicts", "No scheduling conflicts were detected.")
+
+    def _check_hours(self) -> None:
+        """Calculate and display weekly hours for each employee."""
+        if not self.schedule_dates:
+            messagebox.showinfo("No Schedule", "Please create or load a schedule first.")
+            return
+        lines: List[str] = []
+        for emp in self.employees:
+            shifts = [emp.schedule.get(dt.isoformat(), "") for dt in self.schedule_dates]
+            raw, adj = _hours_from_shifts(shifts)
+            segs = [f"W{i+1}: {raw[i]:.1f}/{adj[i]:.1f}" for i in range(3)]
+            lines.append(f"{emp.first_name} {emp.last_name}: " + ", ".join(segs))
+        if lines:
+            messagebox.showinfo("Weekly Hours", "Total hours (raw/adjusted):\n\n" + "\n".join(lines))
+        else:
+            messagebox.showinfo("No Data", "No employees to calculate hours for.")
 
     def _export_to_csv(self) -> None:
         """Export the current schedule to a CSV file."""
