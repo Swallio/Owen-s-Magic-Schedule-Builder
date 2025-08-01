@@ -259,6 +259,8 @@ class ScheduleApp(tk.Tk):
         tk.Button(btn_frame, text="Add/Update Schedule", command=self._add_schedule_dialog).pack(side=tk.LEFT, padx=5)
         # New button to edit availability for existing employees
         tk.Button(btn_frame, text="Edit Availability", command=self._edit_availability_dialog).pack(side=tk.LEFT, padx=5)
+        # Button to show a read‑only calendar view of all availability
+        tk.Button(btn_frame, text="Show Availability", command=self._show_availability).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Check Conflicts", command=self._check_conflicts).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Export to CSV", command=self._export_to_csv).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_frame, text="Import CSV", command=self._append_csv_dialog).pack(side=tk.LEFT, padx=5)
@@ -599,6 +601,8 @@ class ScheduleApp(tk.Tk):
         btn.grid(row=3, column=0, columnspan=2, pady=10)
         tk.Button(btn, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
         tk.Button(btn, text="Save", command=save).pack(side=tk.RIGHT, padx=5)
+        # Allow quick reference of employee availability while editing
+        tk.Button(btn, text="Show Availability", command=lambda: self._show_availability(dialog)).pack(side=tk.LEFT, padx=5)
 
     def _check_conflicts(self) -> None:
         """Update row colouring based on conflict detection and show a summary."""
@@ -665,6 +669,58 @@ class ScheduleApp(tk.Tk):
             messagebox.showinfo("Export Successful", f"Schedule exported to {file_path}")
         except Exception as e:
             messagebox.showerror("Export Failed", f"An error occurred while exporting:\n{e}")
+
+    def _show_availability(self, parent: tk.Widget | None = None) -> None:
+        """Display a read-only calendar of all employee availability."""
+        if not self.employees:
+            messagebox.showinfo("No Employees", "Please add an employee first.", parent=parent or self)
+            return
+        if not self.schedule_dates:
+            messagebox.showinfo("No Schedule", "Please create or load a schedule first.", parent=parent or self)
+            return
+
+        win = tk.Toplevel(parent or self)
+        win.title("Employee Availability")
+        win.transient(parent or self)
+        win.grab_set()
+
+        win.grid_rowconfigure(0, weight=1)
+        win.grid_columnconfigure(0, weight=1)
+
+        columns = ["last", "first"] + [f"d{i}" for i in range(len(self.schedule_dates))]
+        tree = ttk.Treeview(win, columns=columns, show="headings")
+        tree.grid(row=0, column=0, sticky="nsew")
+        vscroll = tk.Scrollbar(win, orient="vertical", command=tree.yview)
+        vscroll.grid(row=0, column=1, sticky="ns")
+        hscroll = tk.Scrollbar(win, orient="horizontal", command=tree.xview)
+        hscroll.grid(row=1, column=0, sticky="ew")
+        tree.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
+
+        tree.heading("last", text="Last Name")
+        tree.heading("first", text="First Name")
+        tree.column("last", width=100, anchor="w")
+        tree.column("first", width=100, anchor="w")
+
+        for idx, dt in enumerate(self.schedule_dates):
+            cid = f"d{idx}"
+            tree.heading(cid, text=dt.strftime("%a %m/%d"))
+            tree.column(cid, width=110, anchor="center")
+
+        for emp in self.employees:
+            row = [emp.last_name, emp.first_name]
+            for idx, dt in enumerate(self.schedule_dates):
+                key = dt.isoformat()
+                if key in emp.special_unavailable:
+                    avail = "UNAVAILABLE"
+                elif key in emp.special_available:
+                    avail = emp.special_available[key]
+                else:
+                    day_name = DAY_NAMES[idx % len(DAY_NAMES)]
+                    avail = emp.availability.get(day_name, "OPEN AVAILABILITY")
+                row.append(avail)
+            tree.insert("", "end", values=row)
+
+        tk.Button(win, text="Close", command=win.destroy).grid(row=2, column=0, columnspan=2, pady=5)
 
     def _show_lucy_image(self) -> None:
         """Open the Lucy.DNG image using the default system viewer."""
