@@ -426,20 +426,31 @@ class ScheduleApp(tk.Tk):
         )
         unavail_frame = tk.Frame(dialog)
         unavail_frame.grid(row=unavail_frame_row, column=0, columnspan=2, sticky="w")
-        unavail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar]] = []
+        unavail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar, tk.Frame]] = []
+
+        def remove_unavail_row(frame: tk.Frame) -> None:
+            for idx, (_, _, _, f) in enumerate(unavail_rows):
+                if f is frame:
+                    unavail_rows.pop(idx)
+                    break
+            frame.destroy()
+            for idx, (_, _, _, f) in enumerate(unavail_rows):
+                f.grid_configure(row=idx)
 
         def add_unavail_row(y: str = "", m: str = "", d: str = "") -> None:
             if len(unavail_rows) >= 16:
                 messagebox.showinfo("Limit Reached", "You can add up to 16 special unavailable dates.")
                 return
-            row = len(unavail_rows)
+            row_frame = tk.Frame(unavail_frame)
+            row_frame.grid(row=len(unavail_rows), column=0, sticky="w")
             year_var = tk.StringVar(value=y or str(today.year))
             month_var = tk.StringVar(value=m or f"{today.month:02d}")
             day_var = tk.StringVar(value=d or f"{today.day:02d}")
-            ttk.Combobox(unavail_frame, values=months, textvariable=month_var, width=3).grid(row=row, column=0, padx=1, pady=1)
-            ttk.Combobox(unavail_frame, values=days, textvariable=day_var, width=3).grid(row=row, column=1, padx=1, pady=1)
-            ttk.Combobox(unavail_frame, values=years, textvariable=year_var, width=5).grid(row=row, column=2, padx=1, pady=1)
-            unavail_rows.append((year_var, month_var, day_var))
+            ttk.Combobox(row_frame, values=months, textvariable=month_var, width=3).grid(row=0, column=0, padx=1, pady=1)
+            ttk.Combobox(row_frame, values=days, textvariable=day_var, width=3).grid(row=0, column=1, padx=1, pady=1)
+            ttk.Combobox(row_frame, values=years, textvariable=year_var, width=5).grid(row=0, column=2, padx=1, pady=1)
+            tk.Button(row_frame, text="-", command=lambda f=row_frame: remove_unavail_row(f)).grid(row=0, column=3, padx=1, pady=1)
+            unavail_rows.append((year_var, month_var, day_var, row_frame))
 
         tk.Label(dialog, text="Special Available Dates (up to 16)").grid(
             row=row_offset + 4 + len(DAY_NAMES), column=0, columnspan=2, pady=(10, 2)
@@ -451,22 +462,33 @@ class ScheduleApp(tk.Tk):
         )
         avail_frame = tk.Frame(dialog)
         avail_frame.grid(row=avail_frame_row, column=0, columnspan=2, sticky="w")
-        avail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar, tk.StringVar]] = []
+        avail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar, tk.StringVar, tk.Frame]] = []
+
+        def remove_avail_row(frame: tk.Frame) -> None:
+            for idx, (_, _, _, _, f) in enumerate(avail_rows):
+                if f is frame:
+                    avail_rows.pop(idx)
+                    break
+            frame.destroy()
+            for idx, (_, _, _, _, f) in enumerate(avail_rows):
+                f.grid_configure(row=idx)
 
         def add_avail_row(y: str = "", m: str = "", d: str = "", a: str = "OPEN AVAILABILITY") -> None:
             if len(avail_rows) >= 16:
                 messagebox.showinfo("Limit Reached", "You can add up to 16 special available dates.")
                 return
-            row = len(avail_rows)
+            row_frame = tk.Frame(avail_frame)
+            row_frame.grid(row=len(avail_rows), column=0, sticky="w")
             year_var = tk.StringVar(value=y or str(today.year))
             month_var = tk.StringVar(value=m or f"{today.month:02d}")
             day_var = tk.StringVar(value=d or f"{today.day:02d}")
             avail_var = tk.StringVar(value=a)
-            ttk.Combobox(avail_frame, values=months, textvariable=month_var, width=3).grid(row=row, column=0, padx=1, pady=1)
-            ttk.Combobox(avail_frame, values=days, textvariable=day_var, width=3).grid(row=row, column=1, padx=1, pady=1)
-            ttk.Combobox(avail_frame, values=years, textvariable=year_var, width=5).grid(row=row, column=2, padx=1, pady=1)
-            ttk.Combobox(avail_frame, values=AVAILABILITY_OPTIONS, textvariable=avail_var, width=15).grid(row=row, column=3, padx=1, pady=1)
-            avail_rows.append((year_var, month_var, day_var, avail_var))
+            ttk.Combobox(row_frame, values=months, textvariable=month_var, width=3).grid(row=0, column=0, padx=1, pady=1)
+            ttk.Combobox(row_frame, values=days, textvariable=day_var, width=3).grid(row=0, column=1, padx=1, pady=1)
+            ttk.Combobox(row_frame, values=years, textvariable=year_var, width=5).grid(row=0, column=2, padx=1, pady=1)
+            ttk.Combobox(row_frame, values=AVAILABILITY_OPTIONS, textvariable=avail_var, width=15).grid(row=0, column=3, padx=1, pady=1)
+            tk.Button(row_frame, text="-", command=lambda f=row_frame: remove_avail_row(f)).grid(row=0, column=4, padx=1, pady=1)
+            avail_rows.append((year_var, month_var, day_var, avail_var, row_frame))
 
         def save_employee() -> None:
             last_name = last_name_var.get().strip()
@@ -1193,20 +1215,31 @@ class ScheduleApp(tk.Tk):
         )
         unavail_frame = tk.Frame(dialog)
         unavail_frame.grid(row=unavail_frame_row, column=0, columnspan=2, sticky="w")
-        unavail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar]] = []
+        unavail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar, tk.Frame]] = []
+
+        def remove_unavail_row(frame: tk.Frame) -> None:
+            for idx, (_, _, _, f) in enumerate(unavail_rows):
+                if f is frame:
+                    unavail_rows.pop(idx)
+                    break
+            frame.destroy()
+            for idx, (_, _, _, f) in enumerate(unavail_rows):
+                f.grid_configure(row=idx)
 
         def add_unavail_row(y: str = "", m: str = "", d: str = "") -> None:
             if len(unavail_rows) >= 16:
                 messagebox.showinfo("Limit Reached", "You can add up to 16 special unavailable dates.")
                 return
-            row = len(unavail_rows)
+            row_frame = tk.Frame(unavail_frame)
+            row_frame.grid(row=len(unavail_rows), column=0, sticky="w")
             year_var = tk.StringVar(value=y or str(today.year))
             month_var = tk.StringVar(value=m or f"{today.month:02d}")
             day_var = tk.StringVar(value=d or f"{today.day:02d}")
-            ttk.Combobox(unavail_frame, values=months, textvariable=month_var, width=3).grid(row=row, column=0, padx=1, pady=1)
-            ttk.Combobox(unavail_frame, values=days, textvariable=day_var, width=3).grid(row=row, column=1, padx=1, pady=1)
-            ttk.Combobox(unavail_frame, values=years, textvariable=year_var, width=5).grid(row=row, column=2, padx=1, pady=1)
-            unavail_rows.append((year_var, month_var, day_var))
+            ttk.Combobox(row_frame, values=months, textvariable=month_var, width=3).grid(row=0, column=0, padx=1, pady=1)
+            ttk.Combobox(row_frame, values=days, textvariable=day_var, width=3).grid(row=0, column=1, padx=1, pady=1)
+            ttk.Combobox(row_frame, values=years, textvariable=year_var, width=5).grid(row=0, column=2, padx=1, pady=1)
+            tk.Button(row_frame, text="-", command=lambda f=row_frame: remove_unavail_row(f)).grid(row=0, column=3, padx=1, pady=1)
+            unavail_rows.append((year_var, month_var, day_var, row_frame))
 
         if emp.special_unavailable:
             for iso in sorted(emp.special_unavailable):
@@ -1225,22 +1258,33 @@ class ScheduleApp(tk.Tk):
         )
         avail_frame = tk.Frame(dialog)
         avail_frame.grid(row=avail_frame_row, column=0, columnspan=2, sticky="w")
-        avail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar, tk.StringVar]] = []
+        avail_rows: List[Tuple[tk.StringVar, tk.StringVar, tk.StringVar, tk.StringVar, tk.Frame]] = []
+
+        def remove_avail_row(frame: tk.Frame) -> None:
+            for idx, (_, _, _, _, f) in enumerate(avail_rows):
+                if f is frame:
+                    avail_rows.pop(idx)
+                    break
+            frame.destroy()
+            for idx, (_, _, _, _, f) in enumerate(avail_rows):
+                f.grid_configure(row=idx)
 
         def add_avail_row(y: str = "", m: str = "", d: str = "", a: str = "OPEN AVAILABILITY") -> None:
             if len(avail_rows) >= 16:
                 messagebox.showinfo("Limit Reached", "You can add up to 16 special available dates.")
                 return
-            row = len(avail_rows)
+            row_frame = tk.Frame(avail_frame)
+            row_frame.grid(row=len(avail_rows), column=0, sticky="w")
             year_var = tk.StringVar(value=y or str(today.year))
             month_var = tk.StringVar(value=m or f"{today.month:02d}")
             day_var = tk.StringVar(value=d or f"{today.day:02d}")
             avail_var = tk.StringVar(value=a)
-            ttk.Combobox(avail_frame, values=months, textvariable=month_var, width=3).grid(row=row, column=0, padx=1, pady=1)
-            ttk.Combobox(avail_frame, values=days, textvariable=day_var, width=3).grid(row=row, column=1, padx=1, pady=1)
-            ttk.Combobox(avail_frame, values=years, textvariable=year_var, width=5).grid(row=row, column=2, padx=1, pady=1)
-            ttk.Combobox(avail_frame, values=AVAILABILITY_OPTIONS, textvariable=avail_var, width=15).grid(row=row, column=3, padx=1, pady=1)
-            avail_rows.append((year_var, month_var, day_var, avail_var))
+            ttk.Combobox(row_frame, values=months, textvariable=month_var, width=3).grid(row=0, column=0, padx=1, pady=1)
+            ttk.Combobox(row_frame, values=days, textvariable=day_var, width=3).grid(row=0, column=1, padx=1, pady=1)
+            ttk.Combobox(row_frame, values=years, textvariable=year_var, width=5).grid(row=0, column=2, padx=1, pady=1)
+            ttk.Combobox(row_frame, values=AVAILABILITY_OPTIONS, textvariable=avail_var, width=15).grid(row=0, column=3, padx=1, pady=1)
+            tk.Button(row_frame, text="-", command=lambda f=row_frame: remove_avail_row(f)).grid(row=0, column=4, padx=1, pady=1)
+            avail_rows.append((year_var, month_var, day_var, avail_var, row_frame))
 
         if emp.special_available:
             for iso, val in sorted(emp.special_available.items()):
@@ -1258,7 +1302,7 @@ class ScheduleApp(tk.Tk):
                     emp.availability[day] = "OPEN AVAILABILITY"
 
             new_unavail: Set[str] = set()
-            for y_var, m_var, d_var in unavail_rows:
+            for y_var, m_var, d_var, _ in unavail_rows:
                 y, m, d = y_var.get().strip(), m_var.get().strip(), d_var.get().strip()
                 if not (y and m and d):
                     continue
@@ -1270,7 +1314,7 @@ class ScheduleApp(tk.Tk):
                 new_unavail.add(dt.isoformat())
 
             new_avail: Dict[str, str] = {}
-            for y_var, m_var, d_var, a_var in avail_rows:
+            for y_var, m_var, d_var, a_var, _ in avail_rows:
                 y, m, d = y_var.get().strip(), m_var.get().strip(), d_var.get().strip()
                 if not (y and m and d):
                     continue
